@@ -103,7 +103,10 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
     private static final int EVENT_TTY_MODE_GET = 15;
     private static final int EVENT_TTY_MODE_SET = 16;
     private static final int EVENT_START_SIP_SERVICE = 17;
+
+    // lanpeng add 
     private static final int EVENT_SET_PREFERRED_TYPE_DONE = 1001;
+    private static final int EVENT_QUERY_PREFERRED_TYPE_DONE = 1000;
 
     // The MMI codes are also used by the InCallScreen.
     public static final int MMI_INITIATE = 51;
@@ -238,6 +241,8 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
     // lanpeng add 02/16,11:15
     private final static String ACTION_CM_SWITCH_ISPTYPE = "com.android.intent.action.CM_SWITCH_ISPTYPE";
     private final static String ACTION_CM_QUERY_ISPTYPE = "com.android.intent.action.CM_QUERY_ISPTYPE";
+    private final static String ACTION_CM_QUERY_ISPTYPE_DONE = "com.android.intent.action.CM_QUERY_ISPTYPE_DONE";
+    private final static String PHONE_NT_MODE = "networkMode";
 
     /**
      * Set the restore mute state flag. Used when we are setting the mute state
@@ -260,6 +265,7 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
         @Override
         public void handleMessage(Message msg) {
             Phone.State phoneState;
+	    AsyncResult	ar;
             switch (msg.what) {
                 // Starts the SIP service. It's a no-op if SIP API is not supported
                 // on the deivce.
@@ -406,11 +412,26 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
 
 		// lanpeng add
 		case EVENT_SET_PREFERRED_TYPE_DONE:
-		    AsyncResult	ar = (AsyncResult) msg.obj;
-                    if (ar.exception != null) {
+		    ar = (AsyncResult) msg.obj;
+                    if (ar.exception == null) {
 			Log.i(LOG_TAG,"EVENT_SET_PREFERRED_TYPE_DONE");
+		        Log.i(LOG_TAG,"-- getting PreferredNetworkType,send to ispbutton when done");
+		        phone.getPreferredNetworkType(mHandler.obtainMessage(EVENT_QUERY_PREFERRED_TYPE_DONE));
 		    }
 		    break;
+
+                case EVENT_QUERY_PREFERRED_TYPE_DONE:
+                    ar = (AsyncResult) msg.obj;
+		    int type = 8;
+                    if (ar.exception == null) {
+                        type = ((int[])ar.result)[0]; 
+                    }
+		    Log.i(LOG_TAG,"EVENT_QUERY_PREFERRED_TYPE_DONE -- type : " + type);
+		    Intent netTypeDone = new Intent(ACTION_CM_QUERY_ISPTYPE_DONE);
+                    netTypeDone.putExtra(PHONE_NT_MODE, "" + type);
+                    sendBroadcast(netTypeDone);
+                    break;
+		// lanpeng add end
             }
         }
     };
@@ -547,6 +568,7 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
 
 	    // lp add
 	    intentFilter.addAction(ACTION_CM_SWITCH_ISPTYPE);
+	    intentFilter.addAction(ACTION_CM_QUERY_ISPTYPE);
 
             if (mTtyEnabled) {
                 intentFilter.addAction(TtyIntent.TTY_PREFERRED_MODE_CHANGE_ACTION);
@@ -616,16 +638,7 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
                                       CallFeaturesSetting.HAC_VAL_OFF);
         }
 
-	sendISPTypeToPowerWidget();
    }
-
-    // lanpeng add 11:19
-    private void sendISPTypeToPowerWidget() {
-	
-        Intent ispTypeDone = new Intent(ACTION_CM_QUERY_ISPTYPE);
-        ispTypeDone.putExtra("ispType", "" + phone.getPhoneType());
-        sendBroadcast(ispTypeDone);
-    }
 
     @Override
     public void onConfigurationChanged(Configuration newConfig) {
@@ -1536,21 +1549,36 @@ public class PhoneApp extends Application implements AccelerometerListener.Orien
                     notifier.silenceRinger();
                 }
             } else if(action.equals(ACTION_CM_SWITCH_ISPTYPE)) {
-		Message msg = mHandler.obtainMessage(EVENT_SET_PREFERRED_TYPE_DONE);
-		int pos = Phone.NT_MODE_GLOBAL;
-		int phoneType = phone.getPhoneType();
-		Log.i(LOG_TAG,"phoneType -- : " + phoneType);
 
-		switch(phoneType) {
-		    case Phone.PHONE_TYPE_GSM:
-			pos = Phone.NT_MODE_CDMA; //cdma/evdo auto
+		Message msg = mHandler.obtainMessage(EVENT_SET_PREFERRED_TYPE_DONE);
+		int pos = 8;
+		Log.i(LOG_TAG,"phoneType -- : " + intent.getStringExtra(PHONE_NT_MODE));
+		int phoneType = Integer.parseInt(intent.getStringExtra(PHONE_NT_MODE));
+
+		switch (phoneType) {
+ 
+		    case Phone.NT_MODE_GSM_UMTS:
+		        pos = Phone.NT_MODE_GSM_UMTS;
 			break;
-		    case Phone.PHONE_TYPE_CDMA:
-			pos = Phone.NT_MODE_GSM_UMTS;//gsm/cdma auto
-			break;		
+
+		    case Phone.NT_MODE_CDMA:
+		        pos = Phone.NT_MODE_CDMA;
+			break;
+
+		    case Phone.NT_MODE_GLOBAL:
+		        pos = Phone.NT_MODE_GLOBAL;
+			break;
 		}
+
 		Log.i(LOG_TAG,"going to newType -- : " + pos);
 		phone.setPreferredNetworkType(pos, msg);
+
+	    } else if(action.equals(ACTION_CM_QUERY_ISPTYPE)) {
+
+		Message msg = mHandler.obtainMessage(EVENT_QUERY_PREFERRED_TYPE_DONE);
+		Log.i(LOG_TAG,"-- getting PreferredNetworkType");
+		phone.getPreferredNetworkType(msg);
+
 	    }
         }
     }
